@@ -97,10 +97,76 @@
   color: var(--vg-muted);
 }
 
+.vg-tabs {
+  display: flex;
+  gap: 8px;
+  background: rgba(17, 24, 39, 0.05);
+  padding: 4px;
+  border-radius: var(--vg-radius-sm);
+  margin-right: 24px;
+}
+
+.vg-tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--vg-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.vg-tab.active {
+  background: var(--vg-surface);
+  color: var(--vg-text);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
 .vg-topbarRight {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.vg-managerDashboard {
+  background: var(--vg-surface);
+  border: 1px solid var(--vg-border);
+  border-radius: var(--vg-radius);
+  box-shadow: var(--vg-shadow);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.vg-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.vg-table th, .vg-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--vg-border);
+}
+
+.vg-table th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--vg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vg-table td {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--vg-text);
+}
+
+.vg-table tr:last-child td {
+  border-bottom: none;
 }
 
 .vg-uploadBtn {

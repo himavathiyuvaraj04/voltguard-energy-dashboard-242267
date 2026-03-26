@@ -236,12 +236,20 @@ function severityLabel(severity) {
   return "Info";
 }
 
+const mockManagerData = [
+  { id: 'CUST-004', name: 'Wayne Enterprises', anomalies: 15, critical: 7, trend: '+5%', status: 'critical' },
+  { id: 'CUST-001', name: 'Acme Corp', anomalies: 12, critical: 4, trend: '+2%', status: 'critical' },
+  { id: 'CUST-002', name: 'Global Tech', anomalies: 8, critical: 1, trend: '-1%', status: 'warning' },
+  { id: 'CUST-003', name: 'Stark Industries', anomalies: 3, critical: 0, trend: '0%', status: 'info' },
+];
+
 // PUBLIC_INTERFACE
 function App() {
   const [thresholdPct, setThresholdPct] = useState(20);
   const [csvData, setCsvData] = useState(null);
   const [uploadError, setUploadError] = useState(null);
   const [viewMode, setViewMode] = useState('daily');
+  const [activeTab, setActiveTab] = useState('customer');
 
   const rawSeries = useMemo(() => csvData || buildMockSeries(), [csvData]);
   const series = useMemo(() => aggregateData(rawSeries, viewMode), [rawSeries, viewMode]);
@@ -329,6 +337,14 @@ function App() {
         </div>
 
         <div className="vg-topbarRight">
+          <div className="vg-tabs">
+            <button className={`vg-tab ${activeTab === 'customer' ? 'active' : ''}`} onClick={() => setActiveTab('customer')}>
+              Customer View
+            </button>
+            <button className={`vg-tab ${activeTab === 'manager' ? 'active' : ''}`} onClick={() => setActiveTab('manager')}>
+              Manager Dashboard
+            </button>
+          </div>
           {uploadError && <div className="vg-uploadError">{uploadError}</div>}
           <div className="vg-uploadBtn">
             <input 
@@ -348,7 +364,36 @@ function App() {
         </div>
       </div>
 
-      <main className="vg-main">
+      <main className="vg-main" style={activeTab === 'manager' ? { display: 'block' } : {}}>
+        {activeTab === 'manager' ? (
+          <div className="vg-managerDashboard">
+            <h2 className="vg-cardTitle">Customer Anomaly Ranking</h2>
+            <p className="vg-cardSubtitle">Customers sorted by total anomalies and severity.</p>
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <th>Customer Name</th>
+                  <th>Total Anomalies</th>
+                  <th>Critical Alerts</th>
+                  <th>Trend</th>
+                  <th>Severity Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mockManagerData.map(cust => (
+                  <tr key={cust.id}>
+                    <td>{cust.name}</td>
+                    <td>{cust.anomalies}</td>
+                    <td>{cust.critical}</td>
+                    <td>{cust.trend}</td>
+                    <td><span className={`vg-sevPill ${cust.status}`}>{severityLabel(cust.status)}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <>
         <section className="vg-left">
           <div className="vg-kpiGrid" aria-label="Key performance indicators">
             <div className="vg-card vg-kpiCard">
@@ -537,6 +582,8 @@ function App() {
             </div>
           </div>
         </aside>
+          </>
+        )}
       </main>
 
       <footer className="vg-footer">
