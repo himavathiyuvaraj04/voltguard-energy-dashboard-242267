@@ -201,38 +201,26 @@ function buildAlerts(anomalySeries) {
     alerts.push({
       id: `${d.ts.toISOString()}-${severity}`,
       ts: d.ts,
-      time: d.label,
+      time: d.ts.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       severity,
-      title: "High consumption anomaly",
-      detail: `Actual ${d.actual} kW is +${Math.round(pctDelta)}% over baseline (${d.baseline} kW).`,
+      title: "Anomaly Detected",
+      detail: `Usage reached ${d.actual.toFixed(1)} kW, a deviation of +${Math.round(pctDelta)}% above the baseline of ${d.baseline.toFixed(1)} kW.`,
+      pctDelta: Math.round(pctDelta)
     });
   });
 
-  // Add a couple of static "system" alerts for demo richness.
-  alerts.push(
-    {
-      id: "system-meter-latency",
-      ts: new Date(Date.now() - 1000 * 60 * 22),
-      time: new Date(Date.now() - 1000 * 60 * 22).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      severity: "info",
-      title: "Telemetry running in Demo Mode",
-      detail: "Dashboard uses offline mock data. No backend connection required.",
-    },
-    {
-      id: "system-efficiency",
-      ts: new Date(Date.now() - 1000 * 60 * 55),
-      time: new Date(Date.now() - 1000 * 60 * 55).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      severity: "warning",
-      title: "Efficiency drift detected",
-      detail: "Baseline alignment drifted 1.7% over the past 6 hours (demo).",
-    }
-  );
+  // Add a system info alert for context
+  alerts.push({
+    id: "system-meter-latency",
+    ts: new Date(Date.now() - 1000 * 60 * 22),
+    time: new Date(Date.now() - 1000 * 60 * 22).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    severity: "info",
+    title: "System Info",
+    detail: "Anomaly detection algorithm actively monitoring for deviations above baseline.",
+  });
 
   // Sort newest first
   return alerts.sort((a, b) => b.ts.getTime() - a.ts.getTime());
@@ -534,7 +522,11 @@ function App() {
                   <div className="vg-alertDetail">{a.detail}</div>
                   <div className="vg-alertFooter">
                     <span className={`vg-sevPill ${a.severity}`}>{severityLabel(a.severity)}</span>
-                    <span className="vg-alertHint">Demo alert</span>
+                    {a.pctDelta !== undefined ? (
+                      <span className="vg-alertHint">Deviation: +{a.pctDelta}%</span>
+                    ) : (
+                      <span className="vg-alertHint">System</span>
+                    )}
                   </div>
                 </div>
               ))}
