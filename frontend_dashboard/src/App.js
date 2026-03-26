@@ -6,6 +6,51 @@ import "./App.css";
  * - Baseline is smooth and predictable.
  * - Actual follows baseline with noise, with a few injected anomalies.
  */
+function parseCSV(text) {
+  const lines = text.trim().split('\n').map(line => line.trim()).filter(line => line);
+  if (lines.length < 2) throw new Error("CSV must contain a header and at least one data row.");
+  
+  const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
+  
+  // Required columns check
+  const timeIdx = headers.findIndex(h => h === 'time' || h === 'timestamp' || h === 'date');
+  const actualIdx = headers.findIndex(h => h === 'actual' || h === 'value' || h === 'consumption');
+  const baselineIdx = headers.findIndex(h => h === 'baseline');
+
+  if (timeIdx === -1 || actualIdx === -1) {
+    throw new Error("CSV must contain 'time' and 'actual' columns.");
+  }
+
+  const data = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim());
+    if (cols.length <= Math.max(timeIdx, actualIdx)) continue;
+
+    const ts = new Date(cols[timeIdx]);
+    if (isNaN(ts.getTime())) throw new Error(`Invalid date format on row ${i + 1}`);
+
+    const actual = parseFloat(cols[actualIdx]);
+    if (isNaN(actual)) throw new Error(`Invalid numeric actual value on row ${i + 1}`);
+
+    let baseline = actual; // default to actual if no baseline provided
+    if (baselineIdx !== -1 && cols[baselineIdx]) {
+      const bVal = parseFloat(cols[baselineIdx]);
+      if (!isNaN(bVal)) baseline = bVal;
+    }
+
+    data.push({
+      ts,
+      label: ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      baseline: Math.round(baseline * 10) / 10,
+      actual: Math.round(actual * 10) / 10,
+    });
+  }
+  
+  // Sort by time just in case
+  data.sort((a, b) => a.ts.getTime() - b.ts.getTime());
+  return data;
+}
+
 function buildMockSeries() {
   const start = new Date();
   start.setMinutes(0, 0, 0);
@@ -149,9 +194,33 @@ function severityLabel(severity) {
 // PUBLIC_INTERFACE
 function App() {
   const [thresholdKw, setThresholdKw] = useState(12);
+  const [csvData, setCsvData] = useState(null);
+  const [uploadError, setUploadError] = useState(null);
 
-  const series = useMemo(() => buildMockSeries(), []);
+  const series = useMemo(() => csvData || buildMockSeries(), [csvData]);
   const anomalySeries = useMemo(() => computeAnomalies(series, thresholdKw), [series, thresholdKw]);
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadError(null);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const parsedData = parseCSV(evt.target.result);
+        setCsvData(parsedData);
+      } catch (err) {
+        setUploadError(err.message);
+        setCsvData(null);
+      }
+    };
+    reader.onerror = () => {
+      setUploadError("Failed to read file.");
+    };
+    reader.readAsText(file);
+    e.target.value = null; // reset input
+  };
   const alerts = useMemo(() => buildAlerts(anomalySeries), [anomalySeries]);
 
   const latest = anomalySeries[anomalySeries.length - 1];
@@ -213,9 +282,21 @@ function App() {
         </div>
 
         <div className="vg-topbarRight">
+          {uploadError && <div className="vg-uploadError">{uploadError}</div>}
+          <div className="vg-uploadBtn">
+            <input 
+              type="file" 
+              accept=".csv" 
+              className="vg-uploadInput" 
+              onChange={handleFileUpload} 
+              aria-label="Upload CSV data"
+            />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            Upload CSV
+          </div>
           <div className="vg-statusPill" role="status" aria-label="System status">
-            <span className="vg-statusDot" aria-hidden="true" />
-            Offline-ready
+            <span className="vg-statusDot" aria-hidden="true" style={{ background: csvData ? "var(--vg-primary)" : "var(--vg-success)" }} />
+            {csvData ? "Custom Data" : "Offline-ready"}
           </div>
         </div>
       </div>
