@@ -12,7 +12,6 @@ function parseCSV(text) {
   
   const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
   
-  // Required columns check
   const timeIdx = headers.findIndex(h => h === 'time' || h === 'timestamp' || h === 'date');
   const actualIdx = headers.findIndex(h => h === 'actual' || h === 'value' || h === 'consumption');
   const baselineIdx = headers.findIndex(h => h === 'baseline');
@@ -21,7 +20,7 @@ function parseCSV(text) {
     throw new Error("CSV must contain 'time' and 'actual' columns.");
   }
 
-  const data = [];
+  let data = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim());
     if (cols.length <= Math.max(timeIdx, actualIdx)) continue;
@@ -32,61 +31,118 @@ function parseCSV(text) {
     const actual = parseFloat(cols[actualIdx]);
     if (isNaN(actual)) throw new Error(`Invalid numeric actual value on row ${i + 1}`);
 
-    let baseline = actual; // default to actual if no baseline provided
+    let baseline = undefined; 
     if (baselineIdx !== -1 && cols[baselineIdx]) {
       const bVal = parseFloat(cols[baselineIdx]);
       if (!isNaN(bVal)) baseline = bVal;
     }
 
-    data.push({
-      ts,
-      label: ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      baseline: Math.round(baseline * 10) / 10,
-      actual: Math.round(actual * 10) / 10,
-    });
+    data.push({ ts, actual, baseline });
   }
   
-  // Sort by time just in case
   data.sort((a, b) => a.ts.getTime() - b.ts.getTime());
+  data = computeRollingBaseline(data);
   return data;
 }
 
-function buildMockSeries() {
-  const start = new Date();
-  start.setMinutes(0, 0, 0);
-  start.setHours(start.getHours() - 23);
+function computeRollingBaseline(data) {
+  // Compute a rolling 4-week (28 days) baseline if missing
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  return data.map((d, i) => {
+    if (d.baseline !== undefined) return d;
+    
+    // Look back up to 28 days to calculate a rolling average for the baseline
+    let sum = 0;
+    let count = 0;
+    const cutoff = d.ts.getTime() - 28 * MS_PER_DAY;
+    
+    for (let j = i - 1; j >= 0; j--) {
+      if (data[j].ts.getTime() < cutoff) break;
+      sum += data[j].actual;
+      count++;
+    }
+    
+    const baseline = count > 0 ? sum / count : d.actual;
+    return { ...d, baseline };
+  });
+}
 
+function buildMockSeries() {
   const points = [];
-  for (let i = 0; i < 24; i += 1) {
-    const t = new Date(start.getTime() + i * 60 * 60 * 1000);
-    const hour = t.getHours();
+  const end = new Date();
+  end.setMinutes(0, 0, 0);
+  // Generate 60 days of hourly data to have enough history for a 4-week rolling baseline
+  const start = new Date(end.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+  for (let t = start.getTime(); t <= end.getTime(); t += 60 * 60 * 1000) {
+    const date = new Date(t);
+    const hour = date.getHours();
+    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
 
     // Baseline: gentle daily pattern (kW)
-    const baseline =
-      68 +
-      10 * Math.sin(((i - 6) / 24) * Math.PI * 2) +
-      (hour >= 18 ? 6 : 0) +
-      (hour >= 8 && hour <= 11 ? 3 : 0);
+    let baseline = 68 + 10 * Math.sin(((hour - 6) / 24) * Math.PI * 2);
+    if (!isWeekend) baseline += (hour >= 8 && hour <= 18 ? 10 : 0);
 
-    // Actual: baseline + small deterministic variation (no randomness to keep stable in demos)
-    const variation = (i % 5) - 2; // [-2..+2]
+    // Actual: baseline + small deterministic variation
+    const variation = (date.getDate() % 5) - 2; 
     let actual = baseline + variation;
 
-    // Inject anomalies (spike/drop)
-    const anomalyHours = new Set([5, 14, 19]);
-    if (anomalyHours.has(i)) {
-      actual = i === 14 ? baseline + 22 : baseline - 18;
-    }
+    // Inject anomalies
+    if (date.getDate() % 7 === 0 && hour === 14) actual += 25;
+    if (date.getDate() % 11 === 0 && hour === 5) actual -= 18;
 
     points.push({
-      ts: t,
-      label: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      ts: date,
       baseline: Math.round(baseline * 10) / 10,
       actual: Math.round(actual * 10) / 10,
     });
   }
 
+  // Baseline is already calculated for mock, but we format properly
   return points;
+}
+
+function aggregateData(data, viewMode) {
+  if (!data || data.length === 0) return [];
+  
+  const end = data[data.length - 1].ts;
+  let startTime;
+  
+  if (viewMode === 'daily') {
+    startTime = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  } else if (viewMode === 'weekly') {
+    startTime = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else {
+    startTime = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+  }
+
+  const filtered = data.filter(d => d.ts >= startTime);
+  if (viewMode === 'daily') {
+    // Return hourly
+    return filtered.map(d => ({
+      ...d,
+      label: d.ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    }));
+  }
+
+  // Aggregate by day for weekly/monthly
+  const dailyGroups = {};
+  filtered.forEach(d => {
+    const dayStr = d.ts.toISOString().split('T')[0];
+    if (!dailyGroups[dayStr]) {
+      dailyGroups[dayStr] = { ts: d.ts, sumActual: 0, sumBaseline: 0, count: 0 };
+    }
+    dailyGroups[dayStr].sumActual += d.actual;
+    dailyGroups[dayStr].sumBaseline += d.baseline;
+    dailyGroups[dayStr].count += 1;
+  });
+
+  return Object.values(dailyGroups).map(g => ({
+    ts: g.ts,
+    label: g.ts.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+    actual: Math.round((g.sumActual / g.count) * 10) / 10,
+    baseline: Math.round((g.sumBaseline / g.count) * 10) / 10
+  })).sort((a, b) => a.ts.getTime() - b.ts.getTime());
 }
 
 /**
@@ -196,8 +252,10 @@ function App() {
   const [thresholdKw, setThresholdKw] = useState(12);
   const [csvData, setCsvData] = useState(null);
   const [uploadError, setUploadError] = useState(null);
+  const [viewMode, setViewMode] = useState('daily');
 
-  const series = useMemo(() => csvData || buildMockSeries(), [csvData]);
+  const rawSeries = useMemo(() => csvData || buildMockSeries(), [csvData]);
+  const series = useMemo(() => aggregateData(rawSeries, viewMode), [rawSeries, viewMode]);
   const anomalySeries = useMemo(() => computeAnomalies(series, thresholdKw), [series, thresholdKw]);
 
   const handleFileUpload = (e) => {
@@ -336,10 +394,35 @@ function App() {
             <div className="vg-cardHeader">
               <div>
                 <h2 className="vg-cardTitle">Consumption Analytics</h2>
-                <p className="vg-cardSubtitle">Actual vs Baseline (kW) • Anomalies highlighted</p>
+                <p className="vg-cardSubtitle">Actual vs Baseline (kW) • 4-Week Rolling Baseline</p>
               </div>
 
-              <div className="vg-controls">
+              <div className="vg-controls" style={{ gap: '16px' }}>
+                <div className="vg-control">
+                  <span className="vg-controlLabel">View</span>
+                  <div className="vg-sliderRow" style={{ background: 'rgba(17, 24, 39, 0.03)', padding: '2px', borderRadius: '8px', border: '1px solid var(--vg-border)' }}>
+                    {['daily', 'weekly', 'monthly'].map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => setViewMode(mode)}
+                        style={{
+                          background: viewMode === mode ? 'white' : 'transparent',
+                          border: 'none',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: viewMode === mode ? '700' : '600',
+                          color: viewMode === mode ? 'var(--vg-primary)' : 'var(--vg-muted)',
+                          cursor: 'pointer',
+                          boxShadow: viewMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                        }}
+                      >
+                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <label className="vg-control">
                   <span className="vg-controlLabel">Anomaly threshold</span>
                   <div className="vg-sliderRow">
