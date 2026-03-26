@@ -278,10 +278,13 @@ function App() {
   };
   const alerts = useMemo(() => buildAlerts(anomalySeries), [anomalySeries]);
 
-  const latest = anomalySeries[anomalySeries.length - 1];
+  const latest = anomalySeries.length > 0 ? anomalySeries[anomalySeries.length - 1] : { actual: 0, baseline: 0 };
   const lastDelta = latest.actual - latest.baseline;
 
   const kpis = useMemo(() => {
+    if (anomalySeries.length === 0) {
+      return { avgActual: 0, avgBaseline: 0, maxActual: 0, anomalies: 0 };
+    }
     const avgActual = anomalySeries.reduce((acc, d) => acc + d.actual, 0) / anomalySeries.length;
     const avgBaseline = anomalySeries.reduce((acc, d) => acc + d.baseline, 0) / anomalySeries.length;
     const maxActual = Math.max(...anomalySeries.map((d) => d.actual));
@@ -301,8 +304,8 @@ function App() {
   const padding = { top: 18, right: 18, bottom: 34, left: 44 };
 
   const allValues = anomalySeries.flatMap((d) => [d.actual, d.baseline]);
-  const rawMin = Math.min(...allValues);
-  const rawMax = Math.max(...allValues);
+  const rawMin = allValues.length > 0 ? Math.min(...allValues) : 0;
+  const rawMax = allValues.length > 0 ? Math.max(...allValues) : 100;
   const yPad = Math.max(6, (rawMax - rawMin) * 0.12);
   const yMin = Math.floor((rawMin - yPad) / 5) * 5;
   const yMax = Math.ceil((rawMax + yPad) / 5) * 5;
