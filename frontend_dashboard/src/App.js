@@ -176,12 +176,15 @@ function buildScales(data, width, height, padding, yMin, yMax) {
 /**
  * Determine anomalies based on deviation from baseline.
  */
-function computeAnomalies(data, thresholdKw) {
-  return data.map((d) => ({
-    ...d,
-    delta: Math.round((d.actual - d.baseline) * 10) / 10,
-    isAnomaly: Math.abs(d.actual - d.baseline) >= thresholdKw,
-  }));
+function computeAnomalies(data, thresholdPct) {
+  return data.map((d) => {
+    const thresholdValue = d.baseline * (1 + thresholdPct / 100);
+    return {
+      ...d,
+      delta: Math.round((d.actual - d.baseline) * 10) / 10,
+      isAnomaly: d.actual > thresholdValue,
+    };
+  });
 }
 
 /**
@@ -193,17 +196,15 @@ function buildAlerts(anomalySeries) {
   anomalySeries.forEach((d) => {
     if (!d.isAnomaly) return;
 
-    const severity = Math.abs(d.delta) >= 20 ? "critical" : "warning";
+    const pctDelta = ((d.actual - d.baseline) / d.baseline) * 100;
+    const severity = pctDelta >= 30 ? "critical" : "warning";
     alerts.push({
       id: `${d.ts.toISOString()}-${severity}`,
       ts: d.ts,
       time: d.label,
       severity,
-      title: d.delta > 0 ? "High consumption anomaly" : "Unexpected load drop",
-      detail:
-        d.delta > 0
-          ? `Actual ${d.actual} kW is +${d.delta} kW over baseline (${d.baseline} kW).`
-          : `Actual ${d.actual} kW is ${d.delta} kW under baseline (${d.baseline} kW).`,
+      title: "High consumption anomaly",
+      detail: `Actual ${d.actual} kW is +${Math.round(pctDelta)}% over baseline (${d.baseline} kW).`,
     });
   });
 
@@ -249,14 +250,14 @@ function severityLabel(severity) {
 
 // PUBLIC_INTERFACE
 function App() {
-  const [thresholdKw, setThresholdKw] = useState(12);
+  const [thresholdPct, setThresholdPct] = useState(20);
   const [csvData, setCsvData] = useState(null);
   const [uploadError, setUploadError] = useState(null);
   const [viewMode, setViewMode] = useState('daily');
 
   const rawSeries = useMemo(() => csvData || buildMockSeries(), [csvData]);
   const series = useMemo(() => aggregateData(rawSeries, viewMode), [rawSeries, viewMode]);
-  const anomalySeries = useMemo(() => computeAnomalies(series, thresholdKw), [series, thresholdKw]);
+  const anomalySeries = useMemo(() => computeAnomalies(series, thresholdPct), [series, thresholdPct]);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -386,7 +387,7 @@ function App() {
             <div className="vg-card vg-kpiCard">
               <div className="vg-kpiLabel">Anomalies</div>
               <div className="vg-kpiValue">{kpis.anomalies}</div>
-              <div className="vg-kpiMeta">Threshold {thresholdKw} kW</div>
+              <div className="vg-kpiMeta">Threshold +{thresholdPct}%</div>
             </div>
           </div>
 
@@ -424,18 +425,18 @@ function App() {
                 </div>
 
                 <label className="vg-control">
-                  <span className="vg-controlLabel">Anomaly threshold</span>
+                  <span className="vg-controlLabel">Anomaly threshold (%)</span>
                   <div className="vg-sliderRow">
                     <input
                       className="vg-slider"
                       type="range"
-                      min="6"
-                      max="20"
-                      value={thresholdKw}
-                      onChange={(e) => setThresholdKw(Number(e.target.value))}
-                      aria-label="Anomaly threshold in kW"
+                      min="5"
+                      max="50"
+                      value={thresholdPct}
+                      onChange={(e) => setThresholdPct(Number(e.target.value))}
+                      aria-label="Anomaly threshold in percentage"
                     />
-                    <span className="vg-sliderValue">{thresholdKw} kW</span>
+                    <span className="vg-sliderValue">+{thresholdPct}%</span>
                   </div>
                 </label>
               </div>
